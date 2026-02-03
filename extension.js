@@ -72,24 +72,20 @@ function generateCssFile(context) {
   for (const a in byFileType) {
     if (a == "filetype" || a == "myfiletype") continue;
     let tabSelector = `.tab[data-filepath*=".${formatTitle(a)}" i]`;
-    style += `${tabSelector}{background-color:${
-      byFileType[a].backgroundColor
-    } !important; opacity:${byFileType[a].opacity || "0.6"};}
-    ${tabSelector} a,${tabSelector} .monaco-icon-label:after,${tabSelector} .monaco-icon-label:before{color:${
-      byFileType[a].fontColor
-    } !important;}`;
+    style += `${tabSelector}{background-color:${byFileType[a].backgroundColor
+      } !important; opacity:${byFileType[a].opacity || "0.6"};}
+    ${tabSelector} a,${tabSelector} .monaco-icon-label:after,${tabSelector} .monaco-icon-label:before{color:${byFileType[a].fontColor
+      } !important;}`;
   }
 
   for (const a in byDirectory) {
     if (a === "my/directory/" || a === "C:\\my\\directory\\") continue;
     const title = a.replace(/\\/g, "\\\\");
     let tabSelector = `.tab[data-filepath*="${formatTitle(title)}" i]`;
-    style += `${tabSelector}{background-color:${
-      byDirectory[a].backgroundColor
-    } !important; opacity: ${byDirectory[a].opacity || "0.6"};}
-    ${tabSelector} a,${tabSelector} .monaco-icon-label:after,${tabSelector} .monaco-icon-label:before{color:${
-      byDirectory[a].fontColor
-    } !important;}`;
+    style += `${tabSelector}{background-color:${byDirectory[a].backgroundColor
+      } !important; opacity: ${byDirectory[a].opacity || "0.6"};}
+    ${tabSelector} a,${tabSelector} .monaco-icon-label:after,${tabSelector} .monaco-icon-label:before{color:${byDirectory[a].fontColor
+      } !important;}`;
   }
 
   // fix for right side drop shadow
@@ -127,7 +123,7 @@ function generateCssFile(context) {
       })
     );
     const fontColorSelectorsArr = _colorTabs.map(function (a) {
-      
+
       let tabFileName = path.basename(a);
       let tabSelector = `.tab[data-filepath*="${formatTitle(a)}" i]`;
       let previewModeSelector = `.tab[data-filepath="${tabFileName}"][previewMode="true"]`;
@@ -262,9 +258,9 @@ async function clearOpenTabColors(context) {
     let fileNames = getPossibleTitles(editor)
     for (const color in tabs) {
       // if (tabs[color].includes(fileName)) {
-        tabs[color] = tabs[color].filter(function(tab) {
-          return !fileNames.includes(tab)
-        });
+      tabs[color] = tabs[color].filter(function (tab) {
+        return !fileNames.includes(tab)
+      });
       // }
     }
   }
@@ -588,7 +584,7 @@ function activate(context) {
     }
   );
 
-  disposable = context.subscriptions.push(
+  context.subscriptions.push(
     vscode.commands.registerCommand("tabscolor.clearOpenTabColors", () => {
       clearOpenTabColors(context);
     })
@@ -673,6 +669,26 @@ function activate(context) {
     }
   );
 
+  // ---------- Folder color commands ----------
+const registerFolderColor = (command, color) => {
+  context.subscriptions.push(
+    vscode.commands.registerCommand(command, async (folderUri) => {
+      await setFolderColorRule(context, folderUri, color);
+    })
+  );
+};
+
+registerFolderColor("tabscolor.folderColor.blue", "blue");
+registerFolderColor("tabscolor.folderColor.salmon", "salmon");
+registerFolderColor("tabscolor.folderColor.green", "green");
+registerFolderColor("tabscolor.folderColor.red", "red");
+registerFolderColor("tabscolor.folderColor.orange", "orange");
+registerFolderColor("tabscolor.folderColor.yellow", "yellow");
+registerFolderColor("tabscolor.folderColor.black", "black");
+registerFolderColor("tabscolor.folderColor.white", "white");
+// ------------------------------------------
+
+
   disposable = vscode.commands.registerCommand(
     "tabscolor.randomColor",
     function (a, b) {
@@ -724,6 +740,13 @@ function activate(context) {
         });
     }
   );
+
+  context.subscriptions.push(
+    vscode.commands.registerCommand("tabscolor.clearFolderColor", async (folderUri) => {
+      await clearFolderColorRule(context, folderUri);
+    })
+  );
+
 
   // add color commands
   disposable = vscode.commands.registerCommand(
@@ -1092,8 +1115,7 @@ function activate(context) {
 
             storage.set("customColors", customColors);
             vscode.window.showInformationMessage(
-              `Deleted color "${colorName}"${
-                countFiles ? ` and removed from ${countFiles} tabs` : ""
+              `Deleted color "${colorName}"${countFiles ? ` and removed from ${countFiles} tabs` : ""
               }`
             );
           });
@@ -1121,6 +1143,169 @@ function deactivate(context) {
   }
   bootstrap.remove("watcher").write();
 }
+
+function ensureTrailingSep(p) {
+  if (!p) return p;
+  // For matching in CSS, we want a trailing separator so it matches recursively
+  if (p.endsWith("/") || p.endsWith("\\")) return p;
+  return p + (p.includes("\\") ? "\\" : "/");
+}
+
+function folderKeyFromUri(uri) {
+  if (!uri) return "";
+
+  const ws = vscode.workspace.getWorkspaceFolder(uri);
+  if (ws && uri.fsPath && ws.uri.fsPath) {
+    const rel = path.relative(ws.uri.fsPath, uri.fsPath);
+    const normalized = rel.split(path.sep).join("/");
+    return ensureTrailingSep(normalized);
+  }
+
+  let p = (uri.fsPath) ? uri.fsPath : (uri.path || "");
+  return ensureTrailingSep(p);
+}
+
+function normDirKey(s) {
+  return (s || "")
+    .replace(/\\/g, "/")
+    .replace(/\/+$/, "") // remove trailing /
+    .toLowerCase();
+}
+
+function candidateFolderKeys(folderUri) {
+  const keys = new Set();
+
+  // workspace-relative (your current approach)
+  const ws = vscode.workspace.getWorkspaceFolder(folderUri);
+  if (ws?.uri?.fsPath && folderUri?.fsPath) {
+    const rel = path.relative(ws.uri.fsPath, folderUri.fsPath).split(path.sep).join("/");
+    keys.add(rel);
+    keys.add(rel + "/");
+  }
+
+  // absolute
+  if (folderUri?.fsPath) {
+    keys.add(folderUri.fsPath);
+    keys.add(folderUri.fsPath.replace(/\\/g, "/"));
+    keys.add(folderUri.fsPath.replace(/\\/g, "/") + "/");
+  }
+
+  return [...keys];
+}
+
+async function setFolderColorRule(context, folderUri, colorName) {
+  const storage = new Storage(context);
+
+  if (!storage.get("patchedBefore")) {
+    return vscode.window.showErrorMessage("Tabscolor was unable to patch your VS Code files.");
+  }
+  if (!storage.get("secondActivation")) {
+    return vscode.window.showErrorMessage(
+      "In order for Tabscolor to work, you need to restart your VS Code (not just reload) "
+    );
+  }
+  if (!folderUri) return;
+
+  const colorsData = {
+    ...(storage.get("customColors") || {}),
+    ...(storage.get("defaultColors") || {}),
+  };
+
+  const chosen = colorsData[colorName];
+  if (!chosen) {
+    return vscode.window.showErrorMessage(`Unknown color "${colorName}"`);
+  }
+
+  const key = folderKeyFromUri(folderUri);
+  if (!key) return;
+
+  const cfg = vscode.workspace.getConfiguration("tabsColor");
+  const current = cfg.get("byDirectory") || {};
+
+  // ---- de-duplicate older variants of the same folder key ----
+  const norm = (s) =>
+    (s || "")
+      .replace(/\\/g, "/")
+      .replace(/\/+$/, "") // drop trailing slashes
+      .toLowerCase();
+
+  // Build candidate keys that might already exist in settings (old absolute / old relative)
+  const candidates = new Set();
+
+  // canonical (current) key
+  candidates.add(norm(key));
+
+  // absolute fsPath variants
+  if (folderUri.fsPath) {
+    candidates.add(norm(folderUri.fsPath));
+    candidates.add(norm(folderUri.fsPath + path.sep));
+  }
+
+  // workspace-relative variants (if in a workspace)
+  const ws = vscode.workspace.getWorkspaceFolder(folderUri);
+  if (ws?.uri?.fsPath && folderUri?.fsPath) {
+    const rel = path
+      .relative(ws.uri.fsPath, folderUri.fsPath)
+      .split(path.sep)
+      .join("/");
+    candidates.add(norm(rel));
+    candidates.add(norm(rel + "/"));
+  }
+
+  // delete any existing entry that matches any candidate normalization
+  for (const existingKey of Object.keys(current)) {
+    if (candidates.has(norm(existingKey))) {
+      delete current[existingKey];
+    }
+  }
+  // -----------------------------------------------------------
+
+  // Store values in the existing schema (backgroundColor/fontColor/opacity)
+  current[key] = {
+    backgroundColor: chosen.background,
+    fontColor: chosen.color,
+  };
+  if (chosen.opacity != null) current[key].opacity = chosen.opacity;
+
+  await cfg.update("byDirectory", current, vscode.ConfigurationTarget.Global);
+
+  generateCssFile(context);
+  reloadCss();
+}
+
+
+async function clearFolderColorRule(context, folderUri) {
+  const storage = new Storage(context);
+
+  if (!storage.get("patchedBefore")) {
+    return vscode.window.showErrorMessage("Tabscolor was unable to patch your VS Code files.");
+  }
+  if (!storage.get("secondActivation")) {
+    return vscode.window.showErrorMessage("In order for Tabscolor to work, you need to restart your VS Code (not just reload) ");
+  }
+  if (!folderUri) return;
+
+  const key = folderKeyFromUri(folderUri);
+  if (!key) return;
+
+  const cfg = vscode.workspace.getConfiguration("tabsColor");
+  const current = cfg.get("byDirectory") || {};
+
+  if (current[key] == null) {
+    // nothing to clear; still regenerate to be safe
+    generateCssFile(context);
+    reloadCss();
+    return;
+  }
+
+  delete current[key];
+
+  await cfg.update("byDirectory", current, vscode.ConfigurationTarget.Global);
+
+  generateCssFile(context);
+  reloadCss();
+}
+
 
 module.exports = {
   activate,
