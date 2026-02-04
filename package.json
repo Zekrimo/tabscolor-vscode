@@ -75,7 +75,7 @@
 		"commands": [
 			{
 				"command": "tabscolor.none",
-				"title": "Clear tab color",
+				"title": "clear tab color",
 				"category": "TabsColor colors"
 			},
 			{
@@ -235,7 +235,7 @@
 			},
 			{
 				"command": "tabscolor.clearFolderColor",
-				"title": "Clear folder tab color",
+				"title": "clear folder tab color",
 				"category": "TabsColor folders"
 			},
 			{
