@@ -53,6 +53,15 @@
 					},
 					"description": "Automatically color tabs based on their parent folder path. See example on the extension page"
 				},
+				"tabsColor.folderMatchStrategy": {
+					"type": "string",
+					"enum": [
+						"nearest",
+						"asDefined"
+					],
+					"default": "nearest",
+					"description": "When multiple folder rules match a tab, choose whether the nearest (most specific) folder wins or use rule order as defined."
+				},
 				"tabsColor.activeTab": {
 					"type": "object",
 					"default": {
@@ -66,7 +75,7 @@
 		"commands": [
 			{
 				"command": "tabscolor.none",
-				"title": "none",
+				"title": "Clear tab color",
 				"category": "TabsColor colors"
 			},
 			{
@@ -150,6 +159,21 @@
 				"category": "TabsColor functions"
 			},
 			{
+				"command": "tabscolor.clearFolderColors",
+				"title": "clear all folder colors",
+				"category": "TabsColor functions"
+			},
+			{
+				"command": "tabscolor.clearAllColors",
+				"title": "clear all colors",
+				"category": "TabsColor functions"
+			},
+			{
+				"command": "tabscolor.clearFolderColorsByColor",
+				"title": "remove folder colors by color",
+				"category": "TabsColor functions"
+			},
+			{
 				"command": "tabscolor.addColor",
 				"title": "add custom color",
 				"category": "TabsColor functions"
@@ -213,6 +237,21 @@
 				"command": "tabscolor.clearFolderColor",
 				"title": "Clear folder tab color",
 				"category": "TabsColor folders"
+			},
+			{
+				"command": "tabscolor.folderAddColor",
+				"title": "add custom color",
+				"category": "TabsColor folders"
+			},
+			{
+				"command": "tabscolor.folderSelectCustomColor",
+				"title": "Select custom color",
+				"category": "TabsColor folders"
+			},
+			{
+				"command": "tabscolor.folderDeleteCustomColor",
+				"title": "delete custom color",
+				"category": "TabsColor folders"
 			}
 		],
 		"menus": {
@@ -273,6 +312,21 @@
 				},
 				{
 					"command": "tabscolor.clearFolderColor",
+					"group": "functions",
+					"when": "explorerResourceIsFolder"
+				},
+				{
+					"command": "tabscolor.folderAddColor",
+					"group": "functions",
+					"when": "explorerResourceIsFolder"
+				},
+				{
+					"command": "tabscolor.folderSelectCustomColor",
+					"group": "functions",
+					"when": "explorerResourceIsFolder"
+				},
+				{
+					"command": "tabscolor.folderDeleteCustomColor",
 					"group": "functions",
 					"when": "explorerResourceIsFolder"
 				}
