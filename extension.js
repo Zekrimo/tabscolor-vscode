@@ -887,6 +887,9 @@ function activate(context) {
   const clearFolderColors = async () => {
     const cfg = vscode.workspace.getConfiguration("tabsColor");
     await cfg.update("byDirectory", {}, vscode.ConfigurationTarget.Global);
+    if ((vscode.workspace.workspaceFolders || []).length > 0) {
+      await cfg.update("byDirectory", {}, vscode.ConfigurationTarget.Workspace);
+    }
     generateCssFile(context);
     reloadCss();
     vscode.window.showInformationMessage(
@@ -1041,7 +1044,8 @@ function activate(context) {
 const registerFolderColor = (command, color) => {
   context.subscriptions.push(
     vscode.commands.registerCommand(command, async (folderUri) => {
-      await setFolderColorRule(context, folderUri, color);
+      const resolved = resolveFolderUri(folderUri);
+      await setFolderColorRule(context, resolved, color);
     })
   );
 };
@@ -1111,7 +1115,8 @@ registerFolderColor("tabscolor.folderColor.white", "white");
 
   context.subscriptions.push(
     vscode.commands.registerCommand("tabscolor.clearFolderColor", async (folderUri) => {
-      await clearFolderColorRule(context, folderUri);
+      const resolved = resolveFolderUri(folderUri);
+      await clearFolderColorRule(context, resolved);
     })
   );
 
@@ -1133,18 +1138,20 @@ registerFolderColor("tabscolor.folderColor.white", "white");
 
   context.subscriptions.push(
     vscode.commands.registerCommand("tabscolor.folderAddColor", async (folderUri) => {
+      const resolved = resolveFolderUri(folderUri);
       const allColors = {
         ...storage.get("customColors"),
         ...storage.get("defaultColors"),
       };
       openAddColorPanel(context, storage, allColors, async (colorName) => {
-        await setFolderColorRule(context, folderUri, colorName);
+        await setFolderColorRule(context, resolved, colorName);
       });
     })
   );
 
   context.subscriptions.push(
     vscode.commands.registerCommand("tabscolor.folderSelectCustomColor", async (folderUri) => {
+      const resolved = resolveFolderUri(folderUri);
       const customColors = storage.get("customColors") || {};
       if (!Object.keys(customColors).length)
         return vscode.window.showWarningMessage(
@@ -1168,7 +1175,7 @@ registerFolderColor("tabscolor.folderColor.white", "white");
         )
       );
       if (!choice) return;
-      await setFolderColorRule(context, folderUri, choice.label);
+      await setFolderColorRule(context, resolved, choice.label);
     })
   );
 
@@ -1348,18 +1355,46 @@ function ensureTrailingSep(p) {
   return p + (p.includes("\\") ? "\\" : "/");
 }
 
+function resolveFolderUri(arg) {
+  if (!arg) return null;
+  if (Array.isArray(arg)) return arg[0] || null;
+  if (arg.resourceUri) return resolveFolderUri(arg.resourceUri);
+  if (arg.uri) return resolveFolderUri(arg.uri);
+  if (typeof arg === "string") {
+    if (arg.includes("://")) return vscode.Uri.parse(arg);
+    return vscode.Uri.file(arg);
+  }
+  if (arg.fsPath && !arg.scheme) return vscode.Uri.file(arg.fsPath);
+  return arg;
+}
+
+function isRemoteUri(uri) {
+  return !!(uri && uri.scheme && uri.scheme !== "file");
+}
+
+function uriPathForKey(uri) {
+  if (!uri) return "";
+  if (isRemoteUri(uri)) return uri.path || "";
+  return uri.fsPath || uri.path || "";
+}
+
 function folderKeyFromUri(uri) {
   if (!uri) return "";
 
   const ws = vscode.workspace.getWorkspaceFolder(uri);
-  if (ws && uri.fsPath && ws.uri.fsPath) {
-    const rel = path.relative(ws.uri.fsPath, uri.fsPath);
-    const normalized = rel.split(path.sep).join("/");
-    return ensureTrailingSep(normalized);
+  if (ws && uriPathForKey(uri) && uriPathForKey(ws.uri)) {
+    if (isRemoteUri(uri) || isRemoteUri(ws.uri)) {
+      const rel = path.posix.relative(ws.uri.path, uri.path);
+      return ensureTrailingSep(rel);
+    }
+    if (uri.fsPath && ws.uri.fsPath) {
+      const rel = path.relative(ws.uri.fsPath, uri.fsPath);
+      const normalized = rel.split(path.sep).join("/");
+      return ensureTrailingSep(normalized);
+    }
   }
 
-  let p = (uri.fsPath) ? uri.fsPath : (uri.path || "");
-  return ensureTrailingSep(p);
+  return ensureTrailingSep(uriPathForKey(uri));
 }
 
 function normDirKey(s) {
@@ -1369,15 +1404,52 @@ function normDirKey(s) {
     .toLowerCase();
 }
 
+function matchesFolderKey(existingKey, folderUri) {
+  if (!existingKey || !folderUri) return false;
+  const existing = normDirKey(existingKey);
+  if (!existing) return false;
+
+  const relNoWs = normDirKey(vscode.workspace.asRelativePath(folderUri, false));
+  const relWithWs = normDirKey(vscode.workspace.asRelativePath(folderUri, true));
+  const absPath = normDirKey(folderUri.fsPath || "");
+  const uriPath = normDirKey(folderUri.path || "");
+
+  const candidates = [relNoWs, relWithWs, absPath, uriPath].filter(Boolean);
+  for (const c of candidates) {
+    if (existing === c) return true;
+    if (existing.endsWith("/" + c)) return true;
+    if (c.endsWith("/" + existing)) return true;
+  }
+  return false;
+}
+
+function removeMatchingFolderKeys(obj, folderUri) {
+  let removed = 0;
+  if (!obj) return removed;
+  for (const k of Object.keys(obj)) {
+    if (matchesFolderKey(k, folderUri)) {
+      delete obj[k];
+      removed++;
+    }
+  }
+  return removed;
+}
+
 function candidateFolderKeys(folderUri) {
   const keys = new Set();
 
   // workspace-relative (your current approach)
   const ws = vscode.workspace.getWorkspaceFolder(folderUri);
-  if (ws?.uri?.fsPath && folderUri?.fsPath) {
-    const rel = path.relative(ws.uri.fsPath, folderUri.fsPath).split(path.sep).join("/");
-    keys.add(rel);
-    keys.add(rel + "/");
+  if (ws?.uri && folderUri) {
+    if (isRemoteUri(folderUri) || isRemoteUri(ws.uri)) {
+      const rel = path.posix.relative(ws.uri.path, folderUri.path);
+      keys.add(rel);
+      keys.add(rel + "/");
+    } else if (ws.uri.fsPath && folderUri.fsPath) {
+      const rel = path.relative(ws.uri.fsPath, folderUri.fsPath).split(path.sep).join("/");
+      keys.add(rel);
+      keys.add(rel + "/");
+    }
   }
 
   // absolute
@@ -1385,6 +1457,10 @@ function candidateFolderKeys(folderUri) {
     keys.add(folderUri.fsPath);
     keys.add(folderUri.fsPath.replace(/\\/g, "/"));
     keys.add(folderUri.fsPath.replace(/\\/g, "/") + "/");
+  }
+  if (folderUri?.path) {
+    keys.add(folderUri.path);
+    keys.add(folderUri.path + "/");
   }
 
   return [...keys];
@@ -1417,54 +1493,32 @@ async function setFolderColorRule(context, folderUri, colorName) {
   if (!key) return;
 
   const cfg = vscode.workspace.getConfiguration("tabsColor");
-  const current = cfg.get("byDirectory") || {};
+  const inspect = cfg.inspect("byDirectory") || {};
+  const globalByDir = { ...(inspect.globalValue || {}) };
+  const workspaceByDir = { ...(inspect.workspaceValue || {}) };
 
-  // ---- de-duplicate older variants of the same folder key ----
-  const norm = (s) =>
-    (s || "")
-      .replace(/\\/g, "/")
-      .replace(/\/+$/, "") // drop trailing slashes
-      .toLowerCase();
-
-  // Build candidate keys that might already exist in settings (old absolute / old relative)
-  const candidates = new Set();
-
-  // canonical (current) key
-  candidates.add(norm(key));
-
-  // absolute fsPath variants
-  if (folderUri.fsPath) {
-    candidates.add(norm(folderUri.fsPath));
-    candidates.add(norm(folderUri.fsPath + path.sep));
-  }
-
-  // workspace-relative variants (if in a workspace)
-  const ws = vscode.workspace.getWorkspaceFolder(folderUri);
-  if (ws?.uri?.fsPath && folderUri?.fsPath) {
-    const rel = path
-      .relative(ws.uri.fsPath, folderUri.fsPath)
-      .split(path.sep)
-      .join("/");
-    candidates.add(norm(rel));
-    candidates.add(norm(rel + "/"));
-  }
-
-  // delete any existing entry that matches any candidate normalization
-  for (const existingKey of Object.keys(current)) {
-    if (candidates.has(norm(existingKey))) {
-      delete current[existingKey];
-    }
-  }
-  // -----------------------------------------------------------
+  // Remove matches from both scopes so updates/clears work reliably
+  removeMatchingFolderKeys(globalByDir, folderUri);
+  removeMatchingFolderKeys(workspaceByDir, folderUri);
 
   // Store values in the existing schema (backgroundColor/fontColor/opacity)
-  current[key] = {
+  const target =
+    (vscode.workspace.workspaceFolders || []).length > 0
+      ? vscode.ConfigurationTarget.Workspace
+      : vscode.ConfigurationTarget.Global;
+  const targetObj =
+    target === vscode.ConfigurationTarget.Workspace ? workspaceByDir : globalByDir;
+
+  targetObj[key] = {
     backgroundColor: chosen.background,
     fontColor: chosen.color,
   };
-  if (chosen.opacity != null) current[key].opacity = chosen.opacity;
+  if (chosen.opacity != null) targetObj[key].opacity = chosen.opacity;
 
-  await cfg.update("byDirectory", current, vscode.ConfigurationTarget.Global);
+  await cfg.update("byDirectory", globalByDir, vscode.ConfigurationTarget.Global);
+  if ((vscode.workspace.workspaceFolders || []).length > 0) {
+    await cfg.update("byDirectory", workspaceByDir, vscode.ConfigurationTarget.Workspace);
+  }
 
   generateCssFile(context);
   reloadCss();
@@ -1482,22 +1536,26 @@ async function clearFolderColorRule(context, folderUri) {
   }
   if (!folderUri) return;
 
-  const key = folderKeyFromUri(folderUri);
-  if (!key) return;
-
   const cfg = vscode.workspace.getConfiguration("tabsColor");
-  const current = cfg.get("byDirectory") || {};
+  const inspect = cfg.inspect("byDirectory") || {};
+  const globalByDir = { ...(inspect.globalValue || {}) };
+  const workspaceByDir = { ...(inspect.workspaceValue || {}) };
 
-  if (current[key] == null) {
+  let removed = 0;
+  removed += removeMatchingFolderKeys(globalByDir, folderUri);
+  removed += removeMatchingFolderKeys(workspaceByDir, folderUri);
+
+  if (removed === 0) {
     // nothing to clear; still regenerate to be safe
     generateCssFile(context);
     reloadCss();
     return;
   }
 
-  delete current[key];
-
-  await cfg.update("byDirectory", current, vscode.ConfigurationTarget.Global);
+  await cfg.update("byDirectory", globalByDir, vscode.ConfigurationTarget.Global);
+  if ((vscode.workspace.workspaceFolders || []).length > 0) {
+    await cfg.update("byDirectory", workspaceByDir, vscode.ConfigurationTarget.Workspace);
+  }
 
   generateCssFile(context);
   reloadCss();
