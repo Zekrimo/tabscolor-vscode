@@ -37,6 +37,55 @@ function formatTitle(title) {
   return title;
 }
 
+function cssAttrValue(value) {
+  return String(value).replace(/\\/g, "\\\\").replace(/"/g, '\\"');
+}
+
+function ensureTrailingSepWith(p, sep) {
+  if (!p) return p;
+  return p.endsWith(sep) ? p : p + sep;
+}
+
+function isProbablyRelativePath(p) {
+  if (!p) return false;
+  if (p.includes("://")) return false;
+  if (path.isAbsolute(p) || path.posix.isAbsolute(p)) return false;
+  return true;
+}
+
+function collectFolderSelectorValues(key) {
+  const values = new Set();
+  if (!key) return [];
+
+  const raw = String(key);
+
+  const addValue = (v) => {
+    if (!v) return;
+    const withSlash = v.replace(/\\/g, "/");
+    const withBackslash = v.replace(/\//g, "\\");
+    values.add(ensureTrailingSepWith(withSlash, "/"));
+    values.add(ensureTrailingSepWith(withBackslash, "\\"));
+  };
+
+  addValue(raw);
+
+  if (isProbablyRelativePath(raw)) {
+    const wsFolders = vscode.workspace.workspaceFolders || [];
+    for (const ws of wsFolders) {
+      if (!ws || !ws.uri) continue;
+      if (isRemoteUri(ws.uri)) {
+        const base = ws.uri.path || "";
+        const rel = raw.replace(/\\/g, "/");
+        addValue(path.posix.join(base, rel));
+      } else if (ws.uri.fsPath) {
+        addValue(path.join(ws.uri.fsPath, raw));
+      }
+    }
+  }
+
+  return [...values];
+}
+
 function recordFirstKnownUse(context) {
   const storage = new Storage(context);
   if (!storage.get("firstKnownUse")) {
@@ -86,8 +135,11 @@ function generateCssFile(context) {
 
   for (const a of byDirectoryKeys) {
     if (a === "my/directory/" || a === "C:\\my\\directory\\") continue;
-    const title = a.replace(/\\/g, "\\\\");
-    let tabSelector = `.tab[data-filepath*="${formatTitle(title)}" i]`;
+    const selectors = collectFolderSelectorValues(a)
+      .map((v) => `.tab[data-filepath*="${cssAttrValue(formatTitle(v))}" i]`)
+      .filter(Boolean);
+    if (!selectors.length) continue;
+    const tabSelector = selectors.join(",");
     style += `${tabSelector}{background-color:${byDirectory[a].backgroundColor
       } !important; opacity: ${byDirectory[a].opacity || "0.6"};}
     ${tabSelector} a,${tabSelector} .monaco-icon-label:after,${tabSelector} .monaco-icon-label:before{color:${byDirectory[a].fontColor

@@ -264,6 +264,12 @@
 			],
 			"explorer/context": [
 				{
+					"submenu": "colors",
+					"group": "navigation",
+					"title": "color",
+					"when": "!explorerResourceIsFolder"
+				},
+				{
 					"submenu": "folderColors",
 					"group": "navigation",
 					"when": "explorerResourceIsFolder"
