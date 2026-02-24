@@ -53,15 +53,6 @@
 					},
 					"description": "Automatically color tabs based on their parent folder path. See example on the extension page"
 				},
-				"tabsColor.folderMatchStrategy": {
-					"type": "string",
-					"enum": [
-						"nearest",
-						"asDefined"
-					],
-					"default": "nearest",
-					"description": "When multiple folder rules match a tab, choose whether the nearest (most specific) folder wins or use rule order as defined."
-				},
 				"tabsColor.activeTab": {
 					"type": "object",
 					"default": {
@@ -75,7 +66,7 @@
 		"commands": [
 			{
 				"command": "tabscolor.none",
-				"title": "clear tab color",
+				"title": "none",
 				"category": "TabsColor colors"
 			},
 			{
@@ -159,28 +150,18 @@
 				"category": "TabsColor functions"
 			},
 			{
-				"command": "tabscolor.clearFolderColors",
-				"title": "clear all folder colors",
-				"category": "TabsColor functions"
-			},
-			{
-				"command": "tabscolor.clearAllColors",
-				"title": "clear all colors",
-				"category": "TabsColor functions"
-			},
-			{
-				"command": "tabscolor.clearFolderColorsByColor",
-				"title": "remove folder colors by color",
-				"category": "TabsColor functions"
+				"command": "tabscolor.randomColor",
+				"title": "random color",
+				"category": "TabsColor colors"
 			},
 			{
 				"command": "tabscolor.addColor",
-				"title": "add custom color",
+				"title": "add color",
 				"category": "TabsColor functions"
 			},
 			{
 				"command": "tabscolor.more",
-				"title": "Select custom color",
+				"title": "more",
 				"category": "TabsColor colors"
 			},
 			{
@@ -192,66 +173,6 @@
 				"command": "tabscolor.clearOpenTabColors",
 				"title": "Clear All Open Tab Colors",
 				"category": "TabsColor functions"
-			},
-			{
-				"command": "tabscolor.folderColor.blue",
-				"title": "blue",
-				"category": "TabsColor folders"
-			},
-			{
-				"command": "tabscolor.folderColor.salmon",
-				"title": "salmon",
-				"category": "TabsColor folders"
-			},
-			{
-				"command": "tabscolor.folderColor.green",
-				"title": "green",
-				"category": "TabsColor folders"
-			},
-			{
-				"command": "tabscolor.folderColor.red",
-				"title": "red",
-				"category": "TabsColor folders"
-			},
-			{
-				"command": "tabscolor.folderColor.orange",
-				"title": "orange",
-				"category": "TabsColor folders"
-			},
-			{
-				"command": "tabscolor.folderColor.yellow",
-				"title": "yellow",
-				"category": "TabsColor folders"
-			},
-			{
-				"command": "tabscolor.folderColor.black",
-				"title": "black",
-				"category": "TabsColor folders"
-			},
-			{
-				"command": "tabscolor.folderColor.white",
-				"title": "white",
-				"category": "TabsColor folders"
-			},
-			{
-				"command": "tabscolor.clearFolderColor",
-				"title": "clear folder tab color",
-				"category": "TabsColor folders"
-			},
-			{
-				"command": "tabscolor.folderAddColor",
-				"title": "add custom color",
-				"category": "TabsColor folders"
-			},
-			{
-				"command": "tabscolor.folderSelectCustomColor",
-				"title": "Select custom color",
-				"category": "TabsColor folders"
-			},
-			{
-				"command": "tabscolor.folderDeleteCustomColor",
-				"title": "delete custom color",
-				"category": "TabsColor folders"
 			}
 		],
 		"menus": {
@@ -260,81 +181,6 @@
 					"submenu": "colors",
 					"group": "navigation",
 					"title": "color"
-				}
-			],
-			"explorer/context": [
-				{
-					"submenu": "colors",
-					"group": "navigation",
-					"title": "color",
-					"when": "!explorerResourceIsFolder"
-				},
-				{
-					"submenu": "folderColors",
-					"group": "navigation",
-					"when": "explorerResourceIsFolder"
-				}
-			],
-			"folderColors": [
-				{
-					"command": "tabscolor.folderColor.blue",
-					"group": "navigation",
-					"when": "explorerResourceIsFolder"
-				},
-				{
-					"command": "tabscolor.folderColor.salmon",
-					"group": "navigation",
-					"when": "explorerResourceIsFolder"
-				},
-				{
-					"command": "tabscolor.folderColor.green",
-					"group": "navigation",
-					"when": "explorerResourceIsFolder"
-				},
-				{
-					"command": "tabscolor.folderColor.red",
-					"group": "navigation",
-					"when": "explorerResourceIsFolder"
-				},
-				{
-					"command": "tabscolor.folderColor.orange",
-					"group": "navigation",
-					"when": "explorerResourceIsFolder"
-				},
-				{
-					"command": "tabscolor.folderColor.yellow",
-					"group": "navigation",
-					"when": "explorerResourceIsFolder"
-				},
-				{
-					"command": "tabscolor.folderColor.black",
-					"group": "navigation",
-					"when": "explorerResourceIsFolder"
-				},
-				{
-					"command": "tabscolor.folderColor.white",
-					"group": "navigation",
-					"when": "explorerResourceIsFolder"
-				},
-				{
-					"command": "tabscolor.clearFolderColor",
-					"group": "functions",
-					"when": "explorerResourceIsFolder"
-				},
-				{
-					"command": "tabscolor.folderAddColor",
-					"group": "functions",
-					"when": "explorerResourceIsFolder"
-				},
-				{
-					"command": "tabscolor.folderSelectCustomColor",
-					"group": "functions",
-					"when": "explorerResourceIsFolder"
-				},
-				{
-					"command": "tabscolor.folderDeleteCustomColor",
-					"group": "functions",
-					"when": "explorerResourceIsFolder"
 				}
 			],
 			"colors": [
@@ -396,10 +242,6 @@
 			{
 				"id": "colors",
 				"label": "Color"
-			},
-			{
-				"id": "folderColors",
-				"label": "Folder Color"
 			}
 		]
 	},
@@ -428,9 +270,6 @@
 		"id": "da199d98-50b1-4ae5-bcf7-27a9bf1b9e0a",
 		"publisherDisplayName": "mondersky",
 		"publisherId": "1355920c-d02e-47e8-8d1a-d2f59c078d43",
-		"isPreReleaseVersion": false,
-		"installedTimestamp": 1770111471451,
-		"targetPlatform": "undefined",
-		"size": 128866
+		"isPreReleaseVersion": false
 	}
 }

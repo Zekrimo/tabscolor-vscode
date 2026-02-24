@@ -37,55 +37,6 @@ function formatTitle(title) {
   return title;
 }
 
-function cssAttrValue(value) {
-  return String(value).replace(/\\/g, "\\\\").replace(/"/g, '\\"');
-}
-
-function ensureTrailingSepWith(p, sep) {
-  if (!p) return p;
-  return p.endsWith(sep) ? p : p + sep;
-}
-
-function isProbablyRelativePath(p) {
-  if (!p) return false;
-  if (p.includes("://")) return false;
-  if (path.isAbsolute(p) || path.posix.isAbsolute(p)) return false;
-  return true;
-}
-
-function collectFolderSelectorValues(key) {
-  const values = new Set();
-  if (!key) return [];
-
-  const raw = String(key);
-
-  const addValue = (v) => {
-    if (!v) return;
-    const withSlash = v.replace(/\\/g, "/");
-    const withBackslash = v.replace(/\//g, "\\");
-    values.add(ensureTrailingSepWith(withSlash, "/"));
-    values.add(ensureTrailingSepWith(withBackslash, "\\"));
-  };
-
-  addValue(raw);
-
-  if (isProbablyRelativePath(raw)) {
-    const wsFolders = vscode.workspace.workspaceFolders || [];
-    for (const ws of wsFolders) {
-      if (!ws || !ws.uri) continue;
-      if (isRemoteUri(ws.uri)) {
-        const base = ws.uri.path || "";
-        const rel = raw.replace(/\\/g, "/");
-        addValue(path.posix.join(base, rel));
-      } else if (ws.uri.fsPath) {
-        addValue(path.join(ws.uri.fsPath, raw));
-      }
-    }
-  }
-
-  return [...values];
-}
-
 function recordFirstKnownUse(context) {
   const storage = new Storage(context);
   if (!storage.get("firstKnownUse")) {
@@ -111,7 +62,6 @@ function generateCssFile(context) {
   const rulesBasedStyle = vscode.workspace.getConfiguration("tabsColor");
   const byFileType = rulesBasedStyle.byFileType;
   const byDirectory = rulesBasedStyle.byDirectory;
-  const folderMatchStrategy = rulesBasedStyle.folderMatchStrategy || "nearest";
   const activeTab = rulesBasedStyle.activeTab;
   const cssFile = path.join(modulesPath(context), "inject.css");
   const data = "";
@@ -122,28 +72,24 @@ function generateCssFile(context) {
   for (const a in byFileType) {
     if (a == "filetype" || a == "myfiletype") continue;
     let tabSelector = `.tab[data-filepath*=".${formatTitle(a)}" i]`;
-    style += `${tabSelector}{background-color:${byFileType[a].backgroundColor
-      } !important; opacity:${byFileType[a].opacity || "0.6"};}
-    ${tabSelector} a,${tabSelector} .monaco-icon-label:after,${tabSelector} .monaco-icon-label:before{color:${byFileType[a].fontColor
-      } !important;}`;
+    style += `${tabSelector}{background-color:${
+      byFileType[a].backgroundColor
+    } !important; opacity:${byFileType[a].opacity || "0.6"};}
+    ${tabSelector} a,${tabSelector} .monaco-icon-label:after,${tabSelector} .monaco-icon-label:before{color:${
+      byFileType[a].fontColor
+    } !important;}`;
   }
 
-  const byDirectoryKeys = Object.keys(byDirectory || {});
-  if (folderMatchStrategy === "nearest") {
-    byDirectoryKeys.sort((a, b) => a.length - b.length);
-  }
-
-  for (const a of byDirectoryKeys) {
+  for (const a in byDirectory) {
     if (a === "my/directory/" || a === "C:\\my\\directory\\") continue;
-    const selectors = collectFolderSelectorValues(a)
-      .map((v) => `.tab[data-filepath*="${cssAttrValue(formatTitle(v))}" i]`)
-      .filter(Boolean);
-    if (!selectors.length) continue;
-    const tabSelector = selectors.join(",");
-    style += `${tabSelector}{background-color:${byDirectory[a].backgroundColor
-      } !important; opacity: ${byDirectory[a].opacity || "0.6"};}
-    ${tabSelector} a,${tabSelector} .monaco-icon-label:after,${tabSelector} .monaco-icon-label:before{color:${byDirectory[a].fontColor
-      } !important;}`;
+    const title = a.replace(/\\/g, "\\\\");
+    let tabSelector = `.tab[data-filepath*="${formatTitle(title)}" i]`;
+    style += `${tabSelector}{background-color:${
+      byDirectory[a].backgroundColor
+    } !important; opacity: ${byDirectory[a].opacity || "0.6"};}
+    ${tabSelector} a,${tabSelector} .monaco-icon-label:after,${tabSelector} .monaco-icon-label:before{color:${
+      byDirectory[a].fontColor
+    } !important;}`;
   }
 
   // fix for right side drop shadow
@@ -181,7 +127,7 @@ function generateCssFile(context) {
       })
     );
     const fontColorSelectorsArr = _colorTabs.map(function (a) {
-
+      
       let tabFileName = path.basename(a);
       let tabSelector = `.tab[data-filepath*="${formatTitle(a)}" i]`;
       let previewModeSelector = `.tab[data-filepath="${tabFileName}"][previewMode="true"]`;
@@ -277,334 +223,6 @@ function setColor(context, color, tab) {
   }
 }
 
-function openAddColorPanel(context, storage, allColors, onColorAdded) {
-  // Create a new webview panel
-  const panel = vscode.window.createWebviewPanel(
-    "colorPicker", // Identifier for the webview panel
-    "Color Picker", // Title for the webview panel
-    vscode.ViewColumn.One, // Column in which to show the webview panel
-    {
-      enableScripts: true,
-      retainContextWhenHidden: true,
-    } // Webview panel options
-  );
-
-  // Generate the HTML for a table of colors
-  const html = `
-				<style>
-					button {
-						background-color: rgb(29 144 211);
-						border-radius: 8px;
-						border-width: 0;
-						color: #ffffff;
-						cursor: pointer;
-						display: inline-block;
-						font-family: "Haas Grot Text R Web", "Helvetica Neue", Helvetica, Arial, sans-serif;
-						font-size: 14px;
-						font-weight: 500;
-						line-height: 20px;
-						list-style: none;
-						padding: 7px 12px;
-						text-align: center;
-						transition: all 200ms;
-						vertical-align: baseline;
-						white-space: nowrap;
-						user-select: none;
-						-webkit-user-select: none;
-						touch-action: manipulation;
-					}
-
-					.error_message {
-						margin-bottom: 3px;
-						argin: 10px 0;
-						padding: 10px;
-						border-radius: 3px 3px 3px 3px;
-						display: none;
-						color: white;
-						width: 200px;
-						align-items: center;
-						background-color: rgba(248, 215, 218, 1);
-						border-color: rgba(220, 53, 69, 1);
-						color: rgba(114, 28, 36,1);
-						transition: all 0.5s;
-					}
-
-					button:hover {
-						opacity: 0.8;
-					}
-
-					.area {
-						margin-top: 26px;
-					}
-				</style>
-
-				<!-- Because the color picker will cover the preview if put it below, so I put it at the top -->
-
-				<div class="area">
-					<p>Preview Color</p>
-					<div style="display: flex; flex-direction: row; ">
-						<div class="preview-f" style="width: 200px; height: 37px; background-color: #fe39c9; color: #fff; display: flex; justify-content: center; align-items: center; margin-right: 2px;">
-							<p>focused</p>
-						</div>
-						
-						<div class="preview-uf" style="width: 200px; height: 37px; background-color: #fe39c9; color: #fff; display: flex; justify-content: center; align-items: center; opacity: 0.6;">
-							<p>unfocused</p>
-						</div>
-					</div>
-				</div>
-
-				<div class="area">
-					<p>Color Name</p>
-					<div id="errorName" class="error_message"></div>
-					<input type="text" id="colorName" style="height: 24px; width: 213px;"/>
-				</div>
-
-				<div class="area">
-					<p>Background Color (hex color or rgb)</p>
-					<div id="errorBackground" class="error_message"></div>
-					<div style="display: flex; flex-direction: row;">
-						<input type="color" id="colorBackground" value="#fe39c9"/>
-						<input type="input" id="colorBackgroundInput" value="#fe39c9"/>
-					</div>
-				</div>
-
-				<div class="area">
-					<p>Text Color (hex color or rgb)</p>
-					<div id="errorText" class="error_message"></div>
-					<div style="display: flex; flex-direction: row;">
-						<input type="color" id="colorText" value="#ffffff"/>
-						<input type="input" id="colorTextInput" value="#ffffff"/>
-					</div>
-				</div>
-
-				<div class="area">
-					<p>Opacity (color when tab is not active, choose from 0 to 1)</p>
-					<div id="errorOpacity" class="error_message"></div>
-					<input type="number" id="colorOpacity" value="0.6" min="0" max="1" step="0.1" style="height: 24px; width: 213px;"/>
-				</div>
-				
-				
-				<div class="area">
-					<div id="errorSubmit" class="error_message"></div>
-					<button id="submit" style="width: 100px; margin-right: 10px;">Submit</button>
-					<button id="close" style="width: 100px; margin-left: 10px; background-color: #ff5959;">Close</button>
-				</div>
-
-
-				<script>
-					function componentToHex(c) {
-						var hex = c.toString(16);
-						return hex.length == 1 ? "0" + hex : hex;
-					}
-					
-					function rgbToHex(r, g, b) {
-						return "#" + componentToHex(r) + componentToHex(g) + componentToHex(b);
-					}
-
-					function handlePreview(id, color) {
-						const type = id == "colorBackground" ? 'background-color' : 'color';
-						document.querySelector('#' + id + 'Input').value = color;
-						hideErrorMessage(id == "colorBackground" ? 'errorBackground' : 'errorText')
-						const previewF = document.querySelector('.preview-f');
-						const previewUF = document.querySelector('.preview-uf');
-						previewF.style[type] = color;
-						previewUF.style[type] = color;
-						previewUF.style.opacity = 0.6;
-					}
-
-					function colorValidationHex(color) {
-						return color.match(/^#[0-9a-f]{6}\$/i);
-					}
-
-					function colorValidationRgb(color) {
-						return color.match(/^rgb\\((0|255|25[0-4]|2[0-4]\\d|1\\d\\d|0?\\d?\\d),(0|255|25[0-4]|2[0-4]\\d|1\\d\\d|0?\\d?\\d),(0|255|25[0-4]|2[0-4]\\d|1\\d\\d|0?\\d?\\d)\\)\$/);
-					}
-
-					function showErrorMessage(id, message) {
-						const el = document.getElementById(id);
-						el.innerText = message;
-						el.style.display = 'block';
-					}
-
-					function hideErrorMessage(id) {
-						const el = document.getElementById(id);
-						el.style.display = 'none';
-					}
-
-					function checkErrorSubmit() {
-						const allErrors = document.querySelectorAll('.error_message');
-						for (let i = 0; i < allErrors.length; i++) {
-							if (allErrors[i].style.display == 'block' && allErrors[i].id != "errorSubmit")
-								return true;
-						}
-						hideErrorMessage('errorSubmit');
-						return false;
-					}
-				
-					const vscode = acquireVsCodeApi();
-					const form = document.querySelector('form');
-					const colorName = document.querySelector('#colorName');
-					const colorBackground = document.querySelector('#colorBackground');
-					const colorText = document.querySelector('#colorText');
-
-					const colorBackgroundInput = document.querySelector('#colorBackgroundInput');
-					const colorTextInput = document.querySelector('#colorTextInput');
-					const colorOpacity = document.querySelector('#colorOpacity');
-					const submit = document.querySelector('#submit');
-					const close = document.querySelector('#close');
-
-					const allColors = ${JSON.stringify(allColors)};
-					
-					showErrorMessage('errorName', "! Color name is required");
-					colorName.addEventListener('input', () => {
-						if (allColors[colorName.value?.trim()]) {
-							const htmlError = "! Color name already exists";
-							showErrorMessage('errorName', htmlError);
-						}
-						else if (!colorName.value?.trim()) {
-							const htmlError = "! Color name is required";
-							showErrorMessage('errorName', htmlError);
-						}
-						else {
-							hideErrorMessage('errorName');
-						}
-						checkErrorSubmit();
-					});
-
-					[colorBackground, colorText].forEach((input) => {
-						input.addEventListener('input', (e) => {
-							handlePreview(e.target.id, e.target.value);
-						});
-					});
-
-					[colorBackgroundInput, colorTextInput].forEach((input) => {
-						input.addEventListener('input', (e) => {
-							let value = e.target.value || '';
-
-							const elChange = e.target.id === 'colorBackgroundInput' ? colorBackground : colorText;
-							const idMessageError = input.id === 'colorBackgroundInput' ? 'errorBackground' : 'errorText';
-
-							if (colorValidationRgb(value)) {
-								value = rgbToHex(...colorValidationRgb(value).slice(1).map((v) => parseInt(v)));
-								elChange.value = value;
-								input.value = value;
-							}
-							else if (colorValidationHex(value)) {
-								elChange.value = value;
-							}
-							else {
-								const errorMessage = "! Invalid color, please enter a valid color in hex or rgb format";
-								return showErrorMessage(idMessageError, errorMessage);
-							}
-
-							checkErrorSubmit();
-							hideErrorMessage(idMessageError);
-							handlePreview(elChange.id, elChange.value);
-						});
-					});
-
-					colorOpacity.addEventListener('input', (e) => {
-						if (!e.target.value || e.target.value < 0 || e.target.value > 1) {
-							return showErrorMessage('errorOpacity', "! Opacity must be between 0 and 1");
-						}
-						else {
-							hideErrorMessage('errorOpacity');
-							const previewUF = document.querySelector('.preview-uf');
-							previewUF.style.opacity = e.target.value;
-						}
-						checkErrorSubmit();
-					});
-
-					submit.addEventListener('click', () => {
-						const errorElements = document.querySelectorAll('[id^="error"]');
-						for (const el of errorElements) {
-							if (el.style.display == 'block')
-								return showErrorMessage('errorSubmit', "! Please fill in all fields correctly");
-						}
-
-						if (!colorName.value || !colorBackground.value || !colorText.value || !colorValidationHex(colorBackground.value) || !colorValidationHex(colorText.value)) {
-							return showErrorMessage('errorSubmit', "! Please fill in all fields correctly");
-						}
-						else if (allColors[colorName.value]) {
-							showErrorMessage('errorName', "! Color name already exists");
-						}
-						else {
-							allColors[colorName.value] = {
-								background: colorBackground.value,
-								color: colorText.value
-							};
-							return vscode.postMessage({
-								command: 'addColor',
-								colorName: colorName.value.trim(),
-								colorBackground: colorBackground.value.trim(),
-								colorText: colorText.value.trim(),
-								colorOpacity: colorOpacity.value.trim(),
-							});
-						}
-					});
-
-					close.addEventListener('click', () => {
-						vscode.postMessage({
-							command: 'close'
-						});
-					});
-				</script>
-			`;
-
-  // Set the webview's initial html content
-  panel.webview.html = html;
-
-  // Handle messages from the webview
-  panel.webview.onDidReceiveMessage(
-    async (message) => {
-      switch (message.command) {
-        case "addColor": {
-          if (
-            (message.colorName && !message.colorName.trim()) ||
-            !message.colorBackground ||
-            !message.colorText
-          )
-            return vscode.window.showErrorMessage(
-              "Please fill in all fields correctly"
-            );
-          if (allColors[message.colorName])
-            return vscode.window.showErrorMessage(
-              `Color "${message.colorName}" already exists`
-            );
-          const newColor = {
-            [message.colorName]: {
-              background: message.colorBackground,
-              color: message.colorText,
-            },
-          };
-          if (message.colorOpacity != 0.6)
-            newColor[message.colorName].opacity = message.colorOpacity;
-          storage.addCustomColor(newColor);
-          allColors[message.colorName] = {
-            background: message.colorBackground,
-            color: message.colorText,
-          };
-          await onColorAdded(message.colorName);
-          vscode.window.showInformationMessage(
-            `Color "${message.colorName}" added`
-          );
-          return;
-        }
-        case "error": {
-          vscode.window.showErrorMessage(message.message);
-          return;
-        }
-        case "close": {
-          panel.dispose();
-          return;
-        }
-      }
-    },
-    undefined,
-    context.subscriptions
-  );
-}
-
 function unsetColor(context, tab) {
   const storage = new Storage(context);
   if (storage.get("patchedBefore")) {
@@ -644,9 +262,9 @@ async function clearOpenTabColors(context) {
     let fileNames = getPossibleTitles(editor)
     for (const color in tabs) {
       // if (tabs[color].includes(fileName)) {
-      tabs[color] = tabs[color].filter(function (tab) {
-        return !fileNames.includes(tab)
-      });
+        tabs[color] = tabs[color].filter(function(tab) {
+          return !fileNames.includes(tab)
+        });
       // }
     }
   }
@@ -936,35 +554,6 @@ function activate(context) {
     }
   );
 
-  const clearFolderColors = async () => {
-    const cfg = vscode.workspace.getConfiguration("tabsColor");
-    await cfg.update("byDirectory", {}, vscode.ConfigurationTarget.Global);
-    if ((vscode.workspace.workspaceFolders || []).length > 0) {
-      await cfg.update("byDirectory", {}, vscode.ConfigurationTarget.Workspace);
-    }
-    generateCssFile(context);
-    reloadCss();
-    vscode.window.showInformationMessage(
-      "folder colors cleared. rules based on filetype won't be affected"
-    );
-  };
-
-  const clearAllColors = async () => {
-    const cssFile = path
-      .join(modulesPath(context), "inject.css")
-      .replace(/\\/g, "/");
-    const css = new Core(context, cssFile);
-    storage.emptyTabs();
-    css.empty();
-    const cfg = vscode.workspace.getConfiguration("tabsColor");
-    await cfg.update("byDirectory", {}, vscode.ConfigurationTarget.Global);
-    generateCssFile(context);
-    reloadCss();
-    vscode.window.showInformationMessage(
-      "all colors cleared. rules based on filetype won't be affected"
-    );
-  };
-
   disposable = vscode.commands.registerCommand(
     "tabscolor.clearTabsColors",
     function () {
@@ -980,14 +569,6 @@ function activate(context) {
         "tabs colors cleared. rules based on filetype and directories won't be affected"
       );
     }
-  );
-
-  context.subscriptions.push(
-    vscode.commands.registerCommand("tabscolor.clearFolderColors", clearFolderColors)
-  );
-
-  context.subscriptions.push(
-    vscode.commands.registerCommand("tabscolor.clearAllColors", clearAllColors)
   );
 
   disposable = vscode.commands.registerCommand(
@@ -1007,7 +588,7 @@ function activate(context) {
     }
   );
 
-  context.subscriptions.push(
+  disposable = context.subscriptions.push(
     vscode.commands.registerCommand("tabscolor.clearOpenTabColors", () => {
       clearOpenTabColors(context);
     })
@@ -1092,27 +673,6 @@ function activate(context) {
     }
   );
 
-  // ---------- Folder color commands ----------
-const registerFolderColor = (command, color) => {
-  context.subscriptions.push(
-    vscode.commands.registerCommand(command, async (folderUri) => {
-      const resolved = resolveFolderUri(folderUri);
-      await setFolderColorRule(context, resolved, color);
-    })
-  );
-};
-
-registerFolderColor("tabscolor.folderColor.blue", "blue");
-registerFolderColor("tabscolor.folderColor.salmon", "salmon");
-registerFolderColor("tabscolor.folderColor.green", "green");
-registerFolderColor("tabscolor.folderColor.red", "red");
-registerFolderColor("tabscolor.folderColor.orange", "orange");
-registerFolderColor("tabscolor.folderColor.yellow", "yellow");
-registerFolderColor("tabscolor.folderColor.black", "black");
-registerFolderColor("tabscolor.folderColor.white", "white");
-// ------------------------------------------
-
-
   disposable = vscode.commands.registerCommand(
     "tabscolor.randomColor",
     function (a, b) {
@@ -1165,14 +725,6 @@ registerFolderColor("tabscolor.folderColor.white", "white");
     }
   );
 
-  context.subscriptions.push(
-    vscode.commands.registerCommand("tabscolor.clearFolderColor", async (folderUri) => {
-      const resolved = resolveFolderUri(folderUri);
-      await clearFolderColorRule(context, resolved);
-    })
-  );
-
-
   // add color commands
   disposable = vscode.commands.registerCommand(
     "tabscolor.addColor",
@@ -1181,202 +733,372 @@ registerFolderColor("tabscolor.folderColor.white", "white");
         ...storage.get("customColors"),
         ...storage.get("defaultColors"),
       };
-      openAddColorPanel(context, storage, allColors, async (colorName) => {
-        // a = tab info from context menu, undefined from command palette
-        setColor(context, colorName, a);
-      });
+      // Create a new webview panel
+      const panel = vscode.window.createWebviewPanel(
+        "colorPicker", // Identifier for the webview panel
+        "Color Picker", // Title for the webview panel
+        vscode.ViewColumn.One, // Column in which to show the webview panel
+        {
+          enableScripts: true,
+          retainContextWhenHidden: true,
+        } // Webview panel options
+      );
+
+      // Generate the HTML for a table of colors
+      const html = `
+				<style>
+					button {
+						background-color: rgb(29 144 211);
+						border-radius: 8px;
+						border-width: 0;
+						color: #ffffff;
+						cursor: pointer;
+						display: inline-block;
+						font-family: "Haas Grot Text R Web", "Helvetica Neue", Helvetica, Arial, sans-serif;
+						font-size: 14px;
+						font-weight: 500;
+						line-height: 20px;
+						list-style: none;
+						padding: 7px 12px;
+						text-align: center;
+						transition: all 200ms;
+						vertical-align: baseline;
+						white-space: nowrap;
+						user-select: none;
+						-webkit-user-select: none;
+						touch-action: manipulation;
+					}
+
+					.error_message {
+						margin-bottom: 3px;
+						argin: 10px 0;
+						padding: 10px;
+						border-radius: 3px 3px 3px 3px;
+						display: none;
+						color: white;
+						width: 200px;
+						align-items: center;
+						background-color: rgba(248, 215, 218, 1);
+						border-color: rgba(220, 53, 69, 1);
+						color: rgba(114, 28, 36,1);
+						transition: all 0.5s;
+					}
+
+					button:hover {
+						opacity: 0.8;
+					}
+
+					.area {
+						margin-top: 26px;
+					}
+				</style>
+
+				<!-- Because the color picker will cover the preview if put it below, so I put it at the top -->
+
+				<div class="area">
+					<p>Preview Color</p>
+					<div style="display: flex; flex-direction: row; ">
+						<div class="preview-f" style="width: 200px; height: 37px; background-color: #fe39c9; color: #fff; display: flex; justify-content: center; align-items: center; margin-right: 2px;">
+							<p>focused</p>
+						</div>
+						
+						<div class="preview-uf" style="width: 200px; height: 37px; background-color: #fe39c9; color: #fff; display: flex; justify-content: center; align-items: center; opacity: 0.6;">
+							<p>unfocused</p>
+						</div>
+					</div>
+				</div>
+
+				<div class="area">
+					<p>Color Name</p>
+					<div id="errorName" class="error_message"></div>
+					<input type="text" id="colorName" style="height: 24px; width: 213px;"/>
+				</div>
+
+				<div class="area">
+					<p>Background Color (hex color or rgb)</p>
+					<div id="errorBackground" class="error_message"></div>
+					<div style="display: flex; flex-direction: row;">
+						<input type="color" id="colorBackground" value="#fe39c9"/>
+						<input type="input" id="colorBackgroundInput" value="#fe39c9"/>
+					</div>
+				</div>
+
+				<div class="area">
+					<p>Text Color (hex color or rgb)</p>
+					<div id="errorText" class="error_message"></div>
+					<div style="display: flex; flex-direction: row;">
+						<input type="color" id="colorText" value="#ffffff"/>
+						<input type="input" id="colorTextInput" value="#ffffff"/>
+					</div>
+				</div>
+
+				<div class="area">
+					<p>Opacity (color when tab is not active, choose from 0 to 1)</p>
+					<div id="errorOpacity" class="error_message"></div>
+					<input type="number" id="colorOpacity" value="0.6" min="0" max="1" step="0.1" style="height: 24px; width: 213px;"/>
+				</div>
+				
+				
+				<div class="area">
+					<div id="errorSubmit" class="error_message"></div>
+					<button id="submit" style="width: 100px; margin-right: 10px;">Submit</button>
+					<button id="close" style="width: 100px; margin-left: 10px; background-color: #ff5959;">Close</button>
+				</div>
+
+
+				<script>
+					function componentToHex(c) {
+						var hex = c.toString(16);
+						return hex.length == 1 ? "0" + hex : hex;
+					}
+					
+					function rgbToHex(r, g, b) {
+						return "#" + componentToHex(r) + componentToHex(g) + componentToHex(b);
+					}
+
+					function handlePreview(id, color) {
+						const type = id == "colorBackground" ? 'background-color' : 'color';
+						document.querySelector('#' + id + 'Input').value = color;
+						hideErrorMessage(id == "colorBackground" ? 'errorBackground' : 'errorText')
+						const previewF = document.querySelector('.preview-f');
+						const previewUF = document.querySelector('.preview-uf');
+						previewF.style[type] = color;
+						previewUF.style[type] = color;
+						previewUF.style.opacity = 0.6;
+					}
+
+					function colorValidationHex(color) {
+						return color.match(/^#[0-9a-f]{6}\$/i);
+					}
+
+					function colorValidationRgb(color) {
+						return color.match(/^rgb\\((0|255|25[0-4]|2[0-4]\\d|1\\d\\d|0?\\d?\\d),(0|255|25[0-4]|2[0-4]\\d|1\\d\\d|0?\\d?\\d),(0|255|25[0-4]|2[0-4]\\d|1\\d\\d|0?\\d?\\d)\\)\$/);
+					}
+
+					function showErrorMessage(id, message) {
+						const el = document.getElementById(id);
+						el.innerText = message;
+						el.style.display = 'block';
+					}
+
+					function hideErrorMessage(id) {
+						const el = document.getElementById(id);
+						el.style.display = 'none';
+					}
+
+					function checkErrorSubmit() {
+						const allErrors = document.querySelectorAll('.error_message');
+						for (let i = 0; i < allErrors.length; i++) {
+							if (allErrors[i].style.display == 'block' && allErrors[i].id != "errorSubmit")
+								return true;
+						}
+						hideErrorMessage('errorSubmit');
+						return false;
+					}
+				
+					const vscode = acquireVsCodeApi();
+					const form = document.querySelector('form');
+					const colorName = document.querySelector('#colorName');
+					const colorBackground = document.querySelector('#colorBackground');
+					const colorText = document.querySelector('#colorText');
+
+					const colorBackgroundInput = document.querySelector('#colorBackgroundInput');
+					const colorTextInput = document.querySelector('#colorTextInput');
+					const colorOpacity = document.querySelector('#colorOpacity');
+					const submit = document.querySelector('#submit');
+					const close = document.querySelector('#close');
+
+					const allColors = ${JSON.stringify(allColors)};
+					
+					showErrorMessage('errorName', "! Color name is required");
+					colorName.addEventListener('input', () => {
+						if (allColors[colorName.value?.trim()]) {
+							const htmlError = "! Color name already exists";
+							showErrorMessage('errorName', htmlError);
+						}
+						else if (!colorName.value?.trim()) {
+							const htmlError = "! Color name is required";
+							showErrorMessage('errorName', htmlError);
+						}
+						else {
+							hideErrorMessage('errorName');
+						}
+						checkErrorSubmit();
+					});
+
+					[colorBackground, colorText].forEach((input) => {
+						input.addEventListener('input', (e) => {
+							handlePreview(e.target.id, e.target.value);
+						});
+					});
+
+					[colorBackgroundInput, colorTextInput].forEach((input) => {
+						input.addEventListener('input', (e) => {
+							let value = e.target.value || '';
+
+							const elChange = e.target.id === 'colorBackgroundInput' ? colorBackground : colorText;
+							const idMessageError = input.id === 'colorBackgroundInput' ? 'errorBackground' : 'errorText';
+
+							if (colorValidationRgb(value)) {
+								value = rgbToHex(...colorValidationRgb(value).slice(1).map((v) => parseInt(v)));
+								elChange.value = value;
+								input.value = value;
+							}
+							else if (colorValidationHex(value)) {
+								elChange.value = value;
+							}
+							else {
+								const errorMessage = "! Invalid color, please enter a valid color in hex or rgb format";
+								return showErrorMessage(idMessageError, errorMessage);
+							}
+
+							checkErrorSubmit();
+							hideErrorMessage(idMessageError);
+							handlePreview(elChange.id, elChange.value);
+						});
+					});
+
+					colorOpacity.addEventListener('input', (e) => {
+						if (!e.target.value || e.target.value < 0 || e.target.value > 1) {
+							return showErrorMessage('errorOpacity', "! Opacity must be between 0 and 1");
+						}
+						else {
+							hideErrorMessage('errorOpacity');
+							const previewUF = document.querySelector('.preview-uf');
+							previewUF.style.opacity = e.target.value;
+						}
+						checkErrorSubmit();
+					});
+
+					submit.addEventListener('click', () => {
+						const errorElements = document.querySelectorAll('[id^="error"]');
+						for (const el of errorElements) {
+							if (el.style.display == 'block')
+								return showErrorMessage('errorSubmit', "! Please fill in all fields correctly");
+						}
+
+						if (!colorName.value || !colorBackground.value || !colorText.value || !colorValidationHex(colorBackground.value) || !colorValidationHex(colorText.value)) {
+							return showErrorMessage('errorSubmit', "! Please fill in all fields correctly");
+						}
+						else if (allColors[colorName.value]) {
+							showErrorMessage('errorName', "! Color name already exists");
+						}
+						else {
+							allColors[colorName.value] = {
+								background: colorBackground.value,
+								color: colorText.value
+							};
+							return vscode.postMessage({
+								command: 'addColor',
+								colorName: colorName.value.trim(),
+								colorBackground: colorBackground.value.trim(),
+								colorText: colorText.value.trim(),
+								colorOpacity: colorOpacity.value.trim(),
+							});
+						}
+					});
+
+					close.addEventListener('click', () => {
+						vscode.postMessage({
+							command: 'close'
+						});
+					});
+				</script>
+			`;
+      // Set the webview's initial html content
+      panel.webview.html = html;
+
+      // Handle messages from the webview
+      panel.webview.onDidReceiveMessage(
+        (message) => {
+          switch (message.command) {
+            case "addColor": {
+              if (
+                (message.colorName && !message.colorName.trim()) ||
+                !message.colorBackground ||
+                !message.colorText
+              )
+                return vscode.window.showErrorMessage(
+                  "Please fill in all fields correctly"
+                );
+              if (allColors[message.colorName])
+                return vscode.window.showErrorMessage(
+                  `Color "${message.colorName}" already exists`
+                );
+              const newColor = {
+                [message.colorName]: {
+                  background: message.colorBackground,
+                  color: message.colorText,
+                },
+              };
+              if (message.colorOpacity != 0.6)
+                newColor[message.colorName].opacity = message.colorOpacity;
+              storage.addCustomColor(newColor);
+              allColors[message.colorName] = {
+                background: message.colorBackground,
+                color: message.colorText,
+              };
+              // a = tab info from context menu, undefined from command palette  
+              setColor(context, message.colorName, a);
+              vscode.window.showInformationMessage(
+                `Color "${message.colorName}" added`
+              );
+              return;
+            }
+            case "error": {
+              vscode.window.showErrorMessage(message.message);
+              return;
+            }
+            case "close": {
+              panel.dispose();
+              return;
+            }
+          }
+        },
+        undefined,
+        context.subscriptions
+      );
     }
-  );
-
-  context.subscriptions.push(
-    vscode.commands.registerCommand("tabscolor.folderAddColor", async (folderUri) => {
-      const resolved = resolveFolderUri(folderUri);
-      const allColors = {
-        ...storage.get("customColors"),
-        ...storage.get("defaultColors"),
-      };
-      openAddColorPanel(context, storage, allColors, async (colorName) => {
-        await setFolderColorRule(context, resolved, colorName);
-      });
-    })
-  );
-
-  context.subscriptions.push(
-    vscode.commands.registerCommand("tabscolor.folderSelectCustomColor", async (folderUri) => {
-      const resolved = resolveFolderUri(folderUri);
-      const customColors = storage.get("customColors") || {};
-      if (!Object.keys(customColors).length)
-        return vscode.window.showWarningMessage(
-          "No more colors, add some first"
-        );
-
-      const options = {
-        placeHolder: "Choose color (click escape to cancel)",
-        matchOnDescription: true,
-        matchOnDetail: true,
-        ignoreFocusOut: true,
-        canPickMany: false,
-      };
-      const choice = await vscode.window.showQuickPick(
-        Object.keys(customColors).map(
-          (c) => ({
-            label: c,
-            description: `background: ${customColors[c].background}, color: ${customColors[c].color}`,
-          }),
-          options
-        )
-      );
-      if (!choice) return;
-      await setFolderColorRule(context, resolved, choice.label);
-    })
-  );
-
-  context.subscriptions.push(
-    vscode.commands.registerCommand("tabscolor.clearFolderColorsByColor", async () => {
-      if (!storage.get("patchedBefore")) {
-        return vscode.window.showErrorMessage("Tabscolor was unable to patch your VS Code files.");
-      }
-      if (!storage.get("secondActivation")) {
-        return vscode.window.showErrorMessage(
-          "In order for Tabscolor to work, you need to restart your VS Code (not just reload) "
-        );
-      }
-
-      const colorsData = {
-        ...(storage.get("customColors") || {}),
-        ...(storage.get("defaultColors") || {}),
-      };
-      const colorNames = Object.keys(colorsData).filter((c) => c !== "none");
-      if (!colorNames.length)
-        return vscode.window.showWarningMessage("No colors available");
-
-      const options = {
-        placeHolder: "Choose color to remove from all folders",
-        matchOnDescription: true,
-        matchOnDetail: true,
-        ignoreFocusOut: true,
-        canPickMany: false,
-      };
-      const choice = await vscode.window.showQuickPick(
-        colorNames.map((c) => ({
-          label: c,
-          description: `background: ${colorsData[c].background}, color: ${colorsData[c].color}`,
-        })),
-        options
-      );
-      if (!choice) return;
-
-      const chosen = colorsData[choice.label];
-      if (!chosen) return;
-
-      const cfg = vscode.workspace.getConfiguration("tabsColor");
-      const current = cfg.get("byDirectory") || {};
-      let removed = 0;
-
-      for (const key of Object.keys(current)) {
-        const entry = current[key];
-        if (
-          entry &&
-          String(entry.backgroundColor || "").toLowerCase() ===
-            String(chosen.background || "").toLowerCase() &&
-          String(entry.fontColor || "").toLowerCase() ===
-            String(chosen.color || "").toLowerCase()
-        ) {
-          delete current[key];
-          removed++;
-        }
-      }
-
-      if (removed === 0) {
-        return vscode.window.showInformationMessage(
-          `No folder colors found for "${choice.label}"`
-        );
-      }
-
-      await cfg.update("byDirectory", current, vscode.ConfigurationTarget.Global);
-      generateCssFile(context);
-      reloadCss();
-      vscode.window.showInformationMessage(
-        `Removed "${choice.label}" from ${removed} folder${removed === 1 ? "" : "s"}`
-      );
-    })
   );
 
   // delete color commands
-  const deleteCustomColors = async () => {
-    const customColors = storage.get("customColors") || {};
-    const tabs = storage.get("tabs") || {};
-    if (Object.keys(customColors).length === 0)
-      return vscode.window.showWarningMessage("No custom colors to delete");
-
-    const colorNames = Object.keys(customColors);
-    const selected = await vscode.window.showQuickPick(colorNames, {
-      canPickMany: true,
-    });
-    if (!selected) return;
-
-    const cfg = vscode.workspace.getConfiguration("tabsColor");
-    const current = cfg.get("byDirectory") || {};
-    let totalFolderRulesRemoved = 0;
-
-    selected.forEach((colorName) => {
-      const colorDef = customColors[colorName];
-      const allColorTabs = Object.keys(tabs);
-      const hasUseThisColor = allColorTabs.includes(colorName);
-      let countFiles = 0;
-      let folderRulesRemoved = 0;
-
-      if (hasUseThisColor) {
-        tabs[colorName].forEach((file) => {
-          countFiles++;
-          unsetColor(context, file.replace(/\\/g, "\\\\"));
-        });
-        delete tabs[colorName];
-        storage.set("tabs", tabs);
-      }
-
-      if (colorDef) {
-        for (const key of Object.keys(current)) {
-          const entry = current[key];
-          if (
-            entry &&
-            String(entry.backgroundColor || "").toLowerCase() ===
-              String(colorDef.background || "").toLowerCase() &&
-            String(entry.fontColor || "").toLowerCase() ===
-              String(colorDef.color || "").toLowerCase()
-          ) {
-            delete current[key];
-            folderRulesRemoved++;
-            totalFolderRulesRemoved++;
-          }
-        }
-      }
-
-      delete customColors[colorName];
-      storage.set("customColors", customColors);
-      vscode.window.showInformationMessage(
-        `Deleted color "${colorName}"${countFiles ? ` and removed from ${countFiles} tabs` : ""}${folderRulesRemoved ? ` and ${folderRulesRemoved} folder rules` : ""
-        }`
-      );
-    });
-
-    if (totalFolderRulesRemoved > 0) {
-      await cfg.update("byDirectory", current, vscode.ConfigurationTarget.Global);
-      generateCssFile(context);
-      reloadCss();
-    }
-  };
-
   disposable = vscode.commands.registerCommand(
     "tabscolor.deleteCustomColor",
-    deleteCustomColors
-  );
+    () => {
+      const customColors = storage.get("customColors") || {};
+      const tabs = storage.get("tabs") || {};
+      if (Object.keys(customColors).length === 0)
+        return vscode.window.showWarningMessage("No custom colors to delete");
+      const colorNames = Object.keys(customColors);
+      vscode.window
+        .showQuickPick(colorNames, { canPickMany: true })
+        .then((colorNames) => {
+          if (!colorNames) return;
+          colorNames.forEach((colorName) => {
+            const allColorTabs = Object.keys(tabs);
+            const hasUseThisColor = allColorTabs.includes(colorName);
+            let countFiles = 0;
 
-  context.subscriptions.push(
-    vscode.commands.registerCommand(
-      "tabscolor.folderDeleteCustomColor",
-      deleteCustomColors
-    )
+            if (hasUseThisColor) {
+              tabs[colorName].forEach((file) => {
+                countFiles++;
+                unsetColor(context, file.replace(/\\/g, "\\\\"));
+              });
+              delete tabs[colorName];
+              storage.set("tabs", tabs);
+            }
+
+            delete customColors[colorName];
+
+            storage.set("customColors", customColors);
+            vscode.window.showInformationMessage(
+              `Deleted color "${colorName}"${
+                countFiles ? ` and removed from ${countFiles} tabs` : ""
+              }`
+            );
+          });
+        });
+    }
   );
 
   context.subscriptions.push(disposable);
@@ -1399,220 +1121,6 @@ function deactivate(context) {
   }
   bootstrap.remove("watcher").write();
 }
-
-function ensureTrailingSep(p) {
-  if (!p) return p;
-  // For matching in CSS, we want a trailing separator so it matches recursively
-  if (p.endsWith("/") || p.endsWith("\\")) return p;
-  return p + (p.includes("\\") ? "\\" : "/");
-}
-
-function resolveFolderUri(arg) {
-  if (!arg) return null;
-  if (Array.isArray(arg)) return arg[0] || null;
-  if (arg.resourceUri) return resolveFolderUri(arg.resourceUri);
-  if (arg.uri) return resolveFolderUri(arg.uri);
-  if (typeof arg === "string") {
-    if (arg.includes("://")) return vscode.Uri.parse(arg);
-    return vscode.Uri.file(arg);
-  }
-  if (arg.fsPath && !arg.scheme) return vscode.Uri.file(arg.fsPath);
-  return arg;
-}
-
-function isRemoteUri(uri) {
-  return !!(uri && uri.scheme && uri.scheme !== "file");
-}
-
-function uriPathForKey(uri) {
-  if (!uri) return "";
-  if (isRemoteUri(uri)) return uri.path || "";
-  return uri.fsPath || uri.path || "";
-}
-
-function folderKeyFromUri(uri) {
-  if (!uri) return "";
-
-  const ws = vscode.workspace.getWorkspaceFolder(uri);
-  if (ws && uriPathForKey(uri) && uriPathForKey(ws.uri)) {
-    if (isRemoteUri(uri) || isRemoteUri(ws.uri)) {
-      const rel = path.posix.relative(ws.uri.path, uri.path);
-      return ensureTrailingSep(rel);
-    }
-    if (uri.fsPath && ws.uri.fsPath) {
-      const rel = path.relative(ws.uri.fsPath, uri.fsPath);
-      const normalized = rel.split(path.sep).join("/");
-      return ensureTrailingSep(normalized);
-    }
-  }
-
-  return ensureTrailingSep(uriPathForKey(uri));
-}
-
-function normDirKey(s) {
-  return (s || "")
-    .replace(/\\/g, "/")
-    .replace(/\/+$/, "") // remove trailing /
-    .toLowerCase();
-}
-
-function matchesFolderKey(existingKey, folderUri) {
-  if (!existingKey || !folderUri) return false;
-  const existing = normDirKey(existingKey);
-  if (!existing) return false;
-
-  const relNoWs = normDirKey(vscode.workspace.asRelativePath(folderUri, false));
-  const relWithWs = normDirKey(vscode.workspace.asRelativePath(folderUri, true));
-  const absPath = normDirKey(folderUri.fsPath || "");
-  const uriPath = normDirKey(folderUri.path || "");
-
-  const candidates = [relNoWs, relWithWs, absPath, uriPath].filter(Boolean);
-  for (const c of candidates) {
-    if (existing === c) return true;
-    if (existing.endsWith("/" + c)) return true;
-    if (c.endsWith("/" + existing)) return true;
-  }
-  return false;
-}
-
-function removeMatchingFolderKeys(obj, folderUri) {
-  let removed = 0;
-  if (!obj) return removed;
-  for (const k of Object.keys(obj)) {
-    if (matchesFolderKey(k, folderUri)) {
-      delete obj[k];
-      removed++;
-    }
-  }
-  return removed;
-}
-
-function candidateFolderKeys(folderUri) {
-  const keys = new Set();
-
-  // workspace-relative (your current approach)
-  const ws = vscode.workspace.getWorkspaceFolder(folderUri);
-  if (ws?.uri && folderUri) {
-    if (isRemoteUri(folderUri) || isRemoteUri(ws.uri)) {
-      const rel = path.posix.relative(ws.uri.path, folderUri.path);
-      keys.add(rel);
-      keys.add(rel + "/");
-    } else if (ws.uri.fsPath && folderUri.fsPath) {
-      const rel = path.relative(ws.uri.fsPath, folderUri.fsPath).split(path.sep).join("/");
-      keys.add(rel);
-      keys.add(rel + "/");
-    }
-  }
-
-  // absolute
-  if (folderUri?.fsPath) {
-    keys.add(folderUri.fsPath);
-    keys.add(folderUri.fsPath.replace(/\\/g, "/"));
-    keys.add(folderUri.fsPath.replace(/\\/g, "/") + "/");
-  }
-  if (folderUri?.path) {
-    keys.add(folderUri.path);
-    keys.add(folderUri.path + "/");
-  }
-
-  return [...keys];
-}
-
-async function setFolderColorRule(context, folderUri, colorName) {
-  const storage = new Storage(context);
-
-  if (!storage.get("patchedBefore")) {
-    return vscode.window.showErrorMessage("Tabscolor was unable to patch your VS Code files.");
-  }
-  if (!storage.get("secondActivation")) {
-    return vscode.window.showErrorMessage(
-      "In order for Tabscolor to work, you need to restart your VS Code (not just reload) "
-    );
-  }
-  if (!folderUri) return;
-
-  const colorsData = {
-    ...(storage.get("customColors") || {}),
-    ...(storage.get("defaultColors") || {}),
-  };
-
-  const chosen = colorsData[colorName];
-  if (!chosen) {
-    return vscode.window.showErrorMessage(`Unknown color "${colorName}"`);
-  }
-
-  const key = folderKeyFromUri(folderUri);
-  if (!key) return;
-
-  const cfg = vscode.workspace.getConfiguration("tabsColor");
-  const inspect = cfg.inspect("byDirectory") || {};
-  const globalByDir = { ...(inspect.globalValue || {}) };
-  const workspaceByDir = { ...(inspect.workspaceValue || {}) };
-
-  // Remove matches from both scopes so updates/clears work reliably
-  removeMatchingFolderKeys(globalByDir, folderUri);
-  removeMatchingFolderKeys(workspaceByDir, folderUri);
-
-  // Store values in the existing schema (backgroundColor/fontColor/opacity)
-  const target =
-    (vscode.workspace.workspaceFolders || []).length > 0
-      ? vscode.ConfigurationTarget.Workspace
-      : vscode.ConfigurationTarget.Global;
-  const targetObj =
-    target === vscode.ConfigurationTarget.Workspace ? workspaceByDir : globalByDir;
-
-  targetObj[key] = {
-    backgroundColor: chosen.background,
-    fontColor: chosen.color,
-  };
-  if (chosen.opacity != null) targetObj[key].opacity = chosen.opacity;
-
-  await cfg.update("byDirectory", globalByDir, vscode.ConfigurationTarget.Global);
-  if ((vscode.workspace.workspaceFolders || []).length > 0) {
-    await cfg.update("byDirectory", workspaceByDir, vscode.ConfigurationTarget.Workspace);
-  }
-
-  generateCssFile(context);
-  reloadCss();
-}
-
-
-async function clearFolderColorRule(context, folderUri) {
-  const storage = new Storage(context);
-
-  if (!storage.get("patchedBefore")) {
-    return vscode.window.showErrorMessage("Tabscolor was unable to patch your VS Code files.");
-  }
-  if (!storage.get("secondActivation")) {
-    return vscode.window.showErrorMessage("In order for Tabscolor to work, you need to restart your VS Code (not just reload) ");
-  }
-  if (!folderUri) return;
-
-  const cfg = vscode.workspace.getConfiguration("tabsColor");
-  const inspect = cfg.inspect("byDirectory") || {};
-  const globalByDir = { ...(inspect.globalValue || {}) };
-  const workspaceByDir = { ...(inspect.workspaceValue || {}) };
-
-  let removed = 0;
-  removed += removeMatchingFolderKeys(globalByDir, folderUri);
-  removed += removeMatchingFolderKeys(workspaceByDir, folderUri);
-
-  if (removed === 0) {
-    // nothing to clear; still regenerate to be safe
-    generateCssFile(context);
-    reloadCss();
-    return;
-  }
-
-  await cfg.update("byDirectory", globalByDir, vscode.ConfigurationTarget.Global);
-  if ((vscode.workspace.workspaceFolders || []).length > 0) {
-    await cfg.update("byDirectory", workspaceByDir, vscode.ConfigurationTarget.Workspace);
-  }
-
-  generateCssFile(context);
-  reloadCss();
-}
-
 
 module.exports = {
   activate,
