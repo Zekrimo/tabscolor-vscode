@@ -1449,6 +1449,12 @@ function folderKeyFromUri(uri) {
   return ensureTrailingSep(uriPathForKey(uri));
 }
 
+function folderKeyAbsoluteFromUri(uri) {
+  if (!uri) return "";
+  const p = uriPathForKey(uri);
+  return ensureTrailingSep(p || "");
+}
+
 function normDirKey(s) {
   return (s || "")
     .replace(/\\/g, "/")
@@ -1541,7 +1547,8 @@ async function setFolderColorRule(context, folderUri, colorName) {
     return vscode.window.showErrorMessage(`Unknown color "${colorName}"`);
   }
 
-  const key = folderKeyFromUri(folderUri);
+  // Store absolute key for platform-correct matching.
+  const key = folderKeyAbsoluteFromUri(folderUri);
   if (!key) return;
 
   const cfg = vscode.workspace.getConfiguration("tabsColor");
